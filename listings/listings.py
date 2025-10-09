@@ -4,7 +4,7 @@ from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime
 from pydantic import BaseModel, Field
-from .address import AddressCreate, AddressRead
+from .address import AddressCreate, AddressRead, AddressUpdate
 
 class ListingBase(BaseModel):
     title: str = Field(
@@ -50,19 +50,16 @@ class ListingBase(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "examples": [
-                {
-                    "id": "123e4567-e89b-12d3-a456-426614174000",
-                    "title": "Spacious 2-Bedroom Apartment in Downtown",
-                    "description": "Modern apartment close to subway and restaurants.",
-                    "monthly_rent": 2500.00,
-                    "num_bedrooms": 2,
-                    "num_bathrooms": 1.5,
-                    "square_feet": 900,
-                    "amenities": ["Gym", "Laundry", "Rooftop Access"],
-                    "is_available": True,
-                }
-            ]
+            "example": {
+                "title": "Spacious 2-Bedroom Apartment in Downtown",
+                "description": "Modern apartment close to subway and restaurants.",
+                "monthly_rent": 2500.00,
+                "num_bedrooms": 2,
+                "num_bathrooms": 1,
+                "square_feet": 900,
+                "amenities": ["Gym", "Laundry", "Rooftop Access"],
+                "is_available": True,
+            }
         }
     }
 
@@ -71,6 +68,28 @@ class ListingCreate(ListingBase):
         ...,
         description="Inline address to create with the listing",
     )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "title": "Spacious 2-Bedroom Apartment in Downtown",
+                "description": "Modern apartment close to subway and restaurants.",
+                "monthly_rent": 2500.00,
+                "num_bedrooms": 2,
+                "num_bathrooms": 1,
+                "square_feet": 900,
+                "amenities": ["Gym", "Laundry", "Rooftop Access"],
+                "is_available": True,
+                "address": {
+                    "street": "123 Main St",
+                    "city": "New York",
+                    "state": "NY",
+                    "postal_code": "10001",
+                    "country": "USA"
+                }
+            }
+        }
+    }
 
 class ListingRead(ListingBase):
     id: UUID = Field(
@@ -92,31 +111,93 @@ class ListingRead(ListingBase):
     model_config = {
         "from_attributes": True,
         "json_schema_extra": {
-            "examples": [
-                {
-                    "id": "123e4567-e89b-12d3-a456-426614174000",
-                    "title": "Spacious 2-Bedroom Apartment in Downtown",
-                    "description": "Modern apartment close to subway and restaurants.",
-                    "monthly_rent": 2500.00,
-                    "num_bedrooms": 2,
-                    "num_bathrooms": 1.5,
-                    "square_feet": 900,
-                    "amenities": ["Gym", "Laundry", "Rooftop Access"],
-                    "is_available": True,
-                    "created_at": "2025-10-06T12:00:00Z",
-                    "updated_at": "2025-10-06T12:00:00Z",
-                    "address": {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "street": "123 Main St",
-                        "city": "New York",
-                        "state": "NY",
-                        "postal_code": "10001",
-                        "country": "USA"
-                    }
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "title": "Spacious 2-Bedroom Apartment in Downtown",
+                "description": "Modern apartment close to subway and restaurants.",
+                "monthly_rent": 2500.00,
+                "num_bedrooms": 2,
+                "num_bathrooms": 1,
+                "square_feet": 900,
+                "amenities": ["Gym", "Laundry", "Rooftop Access"],
+                "is_available": True,
+                "created_at": "2025-10-06T12:00:00Z",
+                "updated_at": "2025-10-06T12:00:00Z",
+                "address": {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "street": "123 Main St",
+                    "city": "New York",
+                    "state": "NY",
+                    "postal_code": "10001",
+                    "country": "USA"
                 }
-            ]
+            }
         },
     }
+
+class ListingUpdate(BaseModel):
+    title: Optional[str] = Field(
+        None,
+        description="Short listing title or headline.",
+        json_schema_extra={"example": "2 Apartment Bedroom with Gym and Pool"},
+    )
+    description: Optional[str] = Field(
+        None,
+        description="Detailed description of the apartment.",
+        json_schema_extra={"example": "Beautiful 2 bedroom apartment. Right by the park and 1 train"},
+    )
+    monthly_rent: Optional[float] = Field(
+        None,
+        description = "Monthly rent price in USD",
+        json_schema_extra={"example": 1900.00},
+    )
+    num_bedrooms: Optional[int] = Field(
+        None,
+        description="Number of bedrooms",
+        json_schema_extra={"example": 2},
+    )
+    num_bathrooms: Optional[int] = Field(
+        None,
+        description="Number of bathrooms",
+        json_schema_extra={"example": 2},
+    )
+    square_feet: Optional[int] = Field(
+        None,
+        description="Total living area in square footage",
+        json_schema_extra={"example": 1000},
+    )
+    # when provided, this replaces entire list
+    amenities: Optional[List[str]] = Field(
+        None,
+        description="List of available amenities",
+        json_schema_extra={"example": ["Gym", "Laundry", "Washer", "Dryer"]},
+    )
+    is_available: Optional[bool] = Field(
+        None,
+        description="Whether the apartment is currently available",
+        json_schema_extra={"example": True},
+    )
+    # only include fields you want to change
+    address: Optional[AddressUpdate] = Field(
+        None,
+        description="Partial update for the embedded address"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "monthly_rent": 2100.0,
+                    "amenities": ["Gym", "Laundry", "Rooftop Access"],
+                    "address": {"city": "Brooklyn", "postal_code": "11201"}
+                },
+                {
+                    "title": "Price Drop! 2BR near Park",
+                    "is_available": True
+                },
+            ]
+        },
+    }   
 
 
 

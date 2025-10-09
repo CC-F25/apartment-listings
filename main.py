@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi import Query, Path
 from typing import Optional
 
-from listings.listings import ListingCreate, ListingRead
+from listings.listings import ListingCreate, ListingRead, ListingUpdate
 from listings.address import AddressCreate, AddressRead
 
 port = int(os.environ.get("FASTAPIPORT", 8000))
@@ -123,6 +123,32 @@ def list_listings(
         results = [l for l in results if l.address.state and l.address.state.lower() == state.lower()]
 
     return results
+
+@app.put("/listings/{listing_id}", response_model=ListingRead)
+def update_listing(listing_id: UUID, payload: ListingCreate):  
+    existing = listings_db.get(listing_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    new_address = make_address_read(payload.address)
+
+    new_listing = ListingRead(
+        id=listing_id,
+        title=payload.title,
+        description=payload.description,
+        monthly_rent=payload.monthly_rent,
+        num_bedrooms=payload.num_bedrooms,
+        num_bathrooms=payload.num_bathrooms,
+        square_feet=payload.square_feet,
+        amenities=payload.amenities,
+        is_available=payload.is_available,
+        address=new_address,                    
+        created_at=existing.created_at,        
+        updated_at=datetime.utcnow(),           
+    )
+
+    listings_db[listing_id] = new_listing
+    return new_listing
 
 @app.delete("/listings/{listing_id}", status_code=204)
 def delete_listing(listing_id: UUID):

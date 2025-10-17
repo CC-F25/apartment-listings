@@ -1,13 +1,16 @@
-**Execution:**
+# Project Description
+Apartment listing microservice
+
+## **Execution:**
 uvicorn main:app --reload
 
-**Models**
+## **Models**
 - listings
 - address
 
-**Listing Model Endpoints**
-- GET/<resource>
-- GET/<resource>/{id}
-- POST/<resource>
-- PUT/<resource>
-- DELETE/<resource>/{id}
+## **Listing Model Endpoints**
+- GET
+- GET by id
+- POST
+- PUT
+- DELETE by id

@@ -150,6 +150,13 @@ def update_listing(listing_id: UUID, payload: ListingCreate):
     listings_db[listing_id] = new_listing
     return new_listing
 
+@app.get("/listings/{listing_id}", response_model=ListingRead)
+def get_listing(listing_id: UUID):
+    listing = listings_db.get(listing_id)
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    return listing
+
 @app.delete("/listings/{listing_id}", status_code=204)
 def delete_listing(listing_id: UUID):
     if listing_id not in listings_db:

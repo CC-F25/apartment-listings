@@ -1,11 +1,11 @@
-Execution
+**Execution:**
 uvicorn main:app --reload
 
-Models
+**Models**
 - listings
 - address
 
-Listing Model Endpoints
+**Listing Model Endpoints**
 - GET/<resource>
 - GET/<resource>/{id}
 - POST/<resource>

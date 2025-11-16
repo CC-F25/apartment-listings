@@ -198,12 +198,3 @@ class ListingUpdate(BaseModel):
             ]
         },
     }   
-
-
-
-
-
-
-
-
-

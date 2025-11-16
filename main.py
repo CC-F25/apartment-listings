@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import os
-import socket
+import asyncio # New import for simulation
 from datetime import datetime
-
-from typing import Dict, List
+from typing import Dict, List, Optional
 from uuid import UUID, uuid4
+import time
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, BackgroundTasks, Response
 from fastapi import Query, Path
-from typing import Optional
 
 from listings.listings import ListingCreate, ListingRead, ListingUpdate
 from listings.address import AddressCreate, AddressRead
@@ -17,10 +16,15 @@ from listings.address import AddressCreate, AddressRead
 port = int(os.environ.get("FASTAPIPORT", 8000))
 
 # -----------------------------------------------------------------------------
-# Fake in-memory "databases"
+# Fake in-memory "databases" and Task Queue (Simulating SQL Storage)
 # -----------------------------------------------------------------------------
 
+# This dictionary now conceptually represents the ASYNC SQL DB storage
 listings_db: Dict[UUID, ListingRead] = {}
+
+# Dictionary to store the status of long-running tasks:
+task_queue: Dict[UUID, Dict] = {}
+
 
 app = FastAPI(
     title="Person/Address API",
@@ -29,10 +33,11 @@ app = FastAPI(
 )
 
 # -----------------------------------------------------------------------------
-# Helper functions for address
+# Helper functions (Remain Synchronous, as they are CPU-bound Pydantic ops)
 # -----------------------------------------------------------------------------
 
 def make_address_read(addr: AddressCreate) -> AddressRead:
+    # ... (same as before)
     now = datetime.utcnow()
     return AddressRead(
         id=uuid4(),
@@ -45,8 +50,8 @@ def make_address_read(addr: AddressCreate) -> AddressRead:
         updated_at=now,
     )
 
-
 def make_listing_read(payload: ListingCreate) -> ListingRead:
+    # ... (same as before)
     now = datetime.utcnow()
     return ListingRead(
         id=uuid4(),
@@ -64,27 +69,93 @@ def make_listing_read(payload: ListingCreate) -> ListingRead:
     )
 
 # -----------------------------------------------------------------------------
-# Listing endpoints
+# Long-running task for Polling
 # -----------------------------------------------------------------------------
 
-@app.post("/listings", response_model=ListingRead, status_code=201)
-def create_listing(payload: ListingCreate):
+async def long_running_listing_creation(payload: ListingCreate, task_id: UUID):
+    """Simulates a long-running, asynchronous database operation for 202 Polling. To be modified when cloud database is done"""
+    
+    await asyncio.sleep(5) 
+    
+    try:
+        # 1. Create the listing object
+        listing = make_listing_read(payload)
+
+        # 2. Simulate async write to DB (using dict for simplicity)
+        listings_db[listing.id] = listing 
+
+        # 3. Update task status
+        task_queue[task_id]["result"] = listing
+        task_queue[task_id]["status"] = "COMPLETED"
+    except Exception as e:
+        task_queue[task_id]["error"] = str(e)
+        task_queue[task_id]["status"] = "FAILED"
+
+
+# -----------------------------------------------------------------------------
+# Listing endpoints (functions involving DB access are async)
+# -----------------------------------------------------------------------------
+
+@app.post("/listings", response_model=ListingRead, status_code=status.HTTP_201_CREATED)
+async def create_listing(payload: ListingCreate):    
+    # Simulate the non-blocking I/O wait time for the INSERT query
+    await asyncio.sleep(0.1) 
+    
     listing = make_listing_read(payload)
     if listing.id in listings_db:
         raise HTTPException(status_code=400, detail="Listing with this ID already exists")
+        
+    # Simulate DB write
     listings_db[listing.id] = listing
     return listings_db[listing.id]
 
+## Asynchronous POST with 202 Accepted and Polling
+@app.post("/listings/async", status_code=status.HTTP_202_ACCEPTED)
+async def create_listing_async(
+    payload: ListingCreate,
+    background_tasks: BackgroundTasks,
+    response: Response,
+):
+
+    task_id = uuid4()
+    task_queue[task_id] = {"status": "PENDING", "result": None, "error": None}
+    
+    # Schedule the long-running async task in the background
+    background_tasks.add_task(long_running_listing_creation, payload, task_id)
+    
+    # Set the Location header for polling
+    response.headers["Location"] = f"/listings/status/{task_id}"
+    
+    return {"message": f"Listing creation process started for task {task_id}.", "task_id": task_id}
+
+## Polling Endpoint
+@app.get("/listings/status/{task_id}")
+async def get_listing_creation_status(task_id: UUID):
+    """Endpoint to check the status of an asynchronous listing creation task."""
+    
+    # Simulate non-blocking I/O wait for checking status in a status table
+    await asyncio.sleep(0.01)
+
+    task = task_queue.get(task_id)
+    
+    if not task:
+        raise HTTPException(status_code=404, detail="Task ID not found.")
+        
+    status_code = task["status"]
+    
+    if status_code == "COMPLETED":
+        return task["result"]
+    elif status_code == "FAILED":
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=task["error"])
+    else:
+        return {"status": "PENDING", "message": "The listing creation is still in progress."}
+
+
+## GET Listings
 @app.get("/listings", response_model=List[ListingRead])
-def list_listings(
+async def list_listings(
     min_rent: Optional[float] = Query(None, description="Minimum monthly rent in USD"),
     max_rent: Optional[float] = Query(None, description="Maximum monthly rent in USD"),
-    min_bedrooms: Optional[int] = Query(None, description="Minimum number of bedrooms"),
-    max_bedrooms: Optional[int] = Query(None, description="Maximum number of bedrooms"),
-    min_bathrooms: Optional[float] = Query(None, description="Minimum number of bathrooms"),
-    max_bathrooms: Optional[float] = Query(None, description="Maximum number of bathrooms"),
-    min_sqft: Optional[int] = Query(None, description="Minimum square footage"),
-    max_sqft: Optional[int] = Query(None, description="Maximum square footage"),
     amenities: Optional[List[str]] = Query(
         None,
         description="Filter by required amenities (e.g. amenities=Gym&amenities=Pool)",
@@ -93,39 +164,21 @@ def list_listings(
     state: Optional[str] = Query(None, description="Filter by state/region"),
     is_available: Optional[bool] = Query(None, description="Filter by availability"),
 ):
+        
+    await asyncio.sleep(0.2) 
+
     results = list(listings_db.values())
 
     if min_rent is not None:
         results = [l for l in results if l.monthly_rent >= min_rent]
-    if max_rent is not None:
-        results = [l for l in results if l.monthly_rent <= max_rent]
-    if min_bedrooms is not None:
-        results = [l for l in results if l.num_bedrooms >= min_bedrooms]
-    if max_bedrooms is not None:
-        results = [l for l in results if l.num_bedrooms <= max_bedrooms]
-    if min_bathrooms is not None:
-        results = [l for l in results if l.num_bathrooms >= min_bathrooms]
-    if max_bathrooms is not None:
-        results = [l for l in results if l.num_bathrooms <= max_bathrooms]
-    if min_sqft is not None:
-        results = [l for l in results if (l.square_feet or 0) >= min_sqft]
-    if max_sqft is not None:
-        results = [l for l in results if (l.square_feet or 0) <= max_sqft]
-    if is_available is not None:
-        results = [l for l in results if l.is_available == is_available]
     
-    if amenities:
-        results = [l for l in results if all(a in l.amenities for a in amenities)]
-
-    if city:
-        results = [l for l in results if l.address.city.lower() == city.lower()]
-    if state:
-        results = [l for l in results if l.address.state and l.address.state.lower() == state.lower()]
-
     return results
 
+## PUT Listing (Converted to Async)
 @app.put("/listings/{listing_id}", response_model=ListingRead)
-def update_listing(listing_id: UUID, payload: ListingCreate):  
+async def update_listing(listing_id: UUID, payload: ListingCreate):      
+    await asyncio.sleep(0.05) 
+    
     existing = listings_db.get(listing_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -146,21 +199,35 @@ def update_listing(listing_id: UUID, payload: ListingCreate):
         created_at=existing.created_at,        
         updated_at=datetime.utcnow(),           
     )
-
+    
+    await asyncio.sleep(0.1) 
+    
     listings_db[listing_id] = new_listing
     return new_listing
 
+## GET Listing by ID
 @app.get("/listings/{listing_id}", response_model=ListingRead)
-def get_listing(listing_id: UUID):
+async def get_listing(listing_id: UUID):
+    """Retrieve a single listing, converted to async for DB access."""
+    
+    await asyncio.sleep(0.05) 
+    
     listing = listings_db.get(listing_id)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
     return listing
 
-@app.delete("/listings/{listing_id}", status_code=204)
-def delete_listing(listing_id: UUID):
+## DELETE Listing
+@app.delete("/listings/{listing_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_listing(listing_id: UUID):
+    
+    await asyncio.sleep(0.1) 
+
     if listing_id not in listings_db:
-        raise HTTPException(status_code=404, detail="Course no found.")
+        # Check before deleting is a SELECT query
+        raise HTTPException(status_code=404, detail="Listing not found.")
+        
+    # Actual deletion (a DELETE query)
     del listings_db[listing_id]
     
 # -----------------------------------------------------------------------------

@@ -68,8 +68,10 @@ def make_address_read(addr: AddressCreate) -> AddressRead:
 
 def make_listing_read(payload: ListingCreate) -> ListingRead:
     now = datetime.utcnow()
+    listing_id = uuid4()
+    addr = make_address_read(payload.address)
     return ListingRead(
-        id=uuid4(),
+        id=listing_id,
         title=payload.title,
         description=payload.description,
         monthly_rent=payload.monthly_rent,
@@ -78,20 +80,26 @@ def make_listing_read(payload: ListingCreate) -> ListingRead:
         square_feet=payload.square_feet,
         amenities=payload.amenities or [],
         is_available=payload.is_available,
-        address=make_address_read(payload.address),
+        address=addr,
         created_at=now,
         updated_at=now,
+        links={
+            "self": listing_self_path(listing_id),
+        }
     )
 
 
 def compute_listing_etag(listing: ListingRead) -> str:
-    """
-    Compute a simple ETag based on the listing id and last updated timestamp.
-    ETag changes any time updated_at changes.
-    """
+    
+    # etag based on listing id and timestamp of last update
     ts = int(listing.updated_at.timestamp())
     return f'W/"{listing.id}-{ts}"'
 
+def listing_self_path(listing_id: UUID) -> str:
+    return f"/listings/{listing_id}"
+
+def listing_status_path(task_id: UUID) -> str:
+    return f"/listings/status/{task_id}"
 
 # -----------------------------------------------------------------------------
 # Long-running task for async listing creation (202 + polling)
@@ -117,12 +125,20 @@ async def long_running_listing_creation(payload: ListingCreate, task_id: UUID):
 
 # Synchronous-style create, but implemented as async to simulate DB I/O
 @app.post("/listings", response_model=ListingRead, status_code=status.HTTP_201_CREATED)
-async def create_listing(payload: ListingCreate):
+async def create_listing(
+    payload: ListingCreate,
+    response: Response,
+):
+
     await asyncio.sleep(0.1)  # simulate DB insert latency
+
     listing = make_listing_read(payload)
     if listing.id in listings_db:
         raise HTTPException(status_code=400, detail="Listing with this ID already exists")
     listings_db[listing.id] = listing
+
+    response.headers["Location"] = listing_self_path(listing.id)
+
     return listings_db[listing.id]
 
 
@@ -138,7 +154,7 @@ async def create_listing_async(
 
     background_tasks.add_task(long_running_listing_creation, payload, task_id)
 
-    response.headers["Location"] = f"/listings/status/{task_id}"
+    response.headers["Location"] = listing_status_path(task_id)
     return {
         "message": f"Listing creation process started for task {task_id}.",
         "task_id": task_id,
@@ -169,6 +185,11 @@ async def get_listing_creation_status(task_id: UUID):
 # GET listings with filters (simplified)
 @app.get("/listings", response_model=List[ListingRead])
 async def list_listings(
+    # pagination
+    limit: int = Query(10, ge=1, le=100, description="Maximum number of listings to return"),
+    offset: int = Query(0, ge=0, description="Number of listings to skip from the start"),
+    # filters   
+    num_bedrooms: Optional[int] = Query(None, description="Filter by number of bedrooms"),
     min_rent: Optional[float] = Query(None, description="Minimum monthly rent in USD"),
     max_rent: Optional[float] = Query(None, description="Maximum monthly rent in USD"),
     amenities: Optional[List[str]] = Query(
@@ -183,6 +204,8 @@ async def list_listings(
 
     results = list(listings_db.values())
 
+    if num_bedrooms is not None:
+        results = [l for l in results if l.num_bedrooms == num_bedrooms]
     if min_rent is not None:
         results = [l for l in results if l.monthly_rent >= min_rent]
     if max_rent is not None:
@@ -200,10 +223,11 @@ async def list_listings(
             if l.address.state and l.address.state.lower() == state.lower()
         ]
 
-    return results
+    # pagination
+    paged_results = results[offset: offset + limit]
+    return paged_results
 
 
-# PUT listing with ETag (If-Match)
 @app.put("/listings/{listing_id}", response_model=ListingRead)
 async def update_listing(
     listing_id: UUID,
@@ -216,7 +240,7 @@ async def update_listing(
     if not existing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    # ETag concurrency check
+    # etag concurrency check
     current_etag = compute_listing_etag(existing)
     if if_match is not None and if_match != current_etag:
         raise HTTPException(
@@ -245,7 +269,6 @@ async def update_listing(
     return new_listing
 
 
-# GET listing by ID with ETag header
 @app.get("/listings/{listing_id}", response_model=ListingRead)
 async def get_listing(listing_id: UUID, response: Response):
     await asyncio.sleep(0.05)
@@ -254,6 +277,7 @@ async def get_listing(listing_id: UUID, response: Response):
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
+    # creating an etag for the information
     etag = compute_listing_etag(listing)
     response.headers["ETag"] = etag
     return listing

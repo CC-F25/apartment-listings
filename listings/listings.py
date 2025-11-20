@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Dict, Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -108,6 +108,11 @@ class ListingRead(ListingBase):
 
     address: AddressRead
 
+    links: Dict[str, str] = Field(
+        ...,
+        description="Links related to the listing",
+    )
+    
     model_config = {
         "from_attributes": True,
         "json_schema_extra": {

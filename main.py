@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
 
-from listings.listings import ListingCreate, ListingRead, ListingUpdate
+from listings.listings import ListingCreate, ListingRead, ListingUpdate, Link
 from listings.address import AddressCreate, AddressRead
 from database import Base, engine, get_db, SessionLocal
 from listings.listings_sql import AddressDB, ListingDB
@@ -100,8 +100,11 @@ def listing_db_to_read(listing: ListingDB) -> ListingRead:
         created_at=addr.created_at,
         updated_at=addr.updated_at,
     )
+
+    listing_id = UUID(listing.id)
+
     return ListingRead(
-        id=UUID(listing.id),
+        id=listing_id,
         title=listing.title,
         description=listing.description,
         monthly_rent=listing.monthly_rent,
@@ -113,6 +116,11 @@ def listing_db_to_read(listing: ListingDB) -> ListingRead:
         created_at=listing.created_at,
         updated_at=listing.updated_at,
         address=address_read,
+        # 🔹 Linked data with *relative paths*
+        links=[
+            Link(rel="self", href=f"/listings/{listing_id}"),
+            Link(rel="collection", href="/listings"),
+        ],
     )
 
 def compute_listing_etag(listing) -> str:

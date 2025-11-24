@@ -6,6 +6,10 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from .address import AddressCreate, AddressRead, AddressUpdate
 
+class Link(BaseModel):
+    rel: str = Field(..., description="Relation type of the link", json_schema_extra={"example": "self"})
+    href: str = Field(..., description="URL of the link", json_schema_extra={"example": "https://api.example.com/listings/123e4567-e89b-12d3-a456-426614174000"})
+
 class ListingBase(BaseModel):
     title: str = Field(
         ...,
@@ -108,8 +112,8 @@ class ListingRead(ListingBase):
 
     address: AddressRead
 
-    links: Dict[str, str] = Field(
-        ...,
+    links: List[Link] = Field(
+        default_factory=list,
         description="Links related to the listing",
     )
     

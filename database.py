@@ -2,7 +2,7 @@
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 
 db_host = os.environ.get("MYSQL_HOST", "localhost")
 db_user = os.environ.get("MYSQL_USER", "root")

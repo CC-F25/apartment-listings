@@ -16,12 +16,13 @@ from fastapi import (
     Query,
     Path,
     Depends,
+    Request,
 )
 from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
 
-from listings.listings import ListingCreate, ListingRead, ListingUpdate, Link
+from listings.listings import ListingCreate, ListingRead, ListingUpdate, Link, ListingPage
 from listings.address import AddressCreate, AddressRead
 from database import Base, engine, get_db, SessionLocal
 from listings.listings_sql import AddressDB, ListingDB
@@ -231,8 +232,9 @@ async def get_listing_creation_status(task_id: UUID):
     return {"status": "PENDING", "message": "The listing creation is still in progress."}
 
 # GET collection with filters
-@app.get("/listings", response_model=List[ListingRead])
+@app.get("/listings", response_model=ListingPage)
 async def list_listings(
+    request: Request,
     min_rent: Optional[float] = Query(None, description="Minimum monthly rent in USD"),
     max_rent: Optional[float] = Query(None, description="Maximum monthly rent in USD"),
     min_bedrooms: Optional[int] = Query(None, description="Minimum number of bedrooms"),
@@ -248,37 +250,49 @@ async def list_listings(
     city: Optional[str] = Query(None, description="Filter by city"),
     state: Optional[str] = Query(None, description="Filter by state/region"),
     is_available: Optional[bool] = Query(None, description="Filter by availability"),
+
+    # pagination
+    limit: int = Query(20, ge=1, le=100, description="Max items to return"),
+    offset: int = Query(0, ge=0, description="Items to skip before starting"),
     db: Session = Depends(get_db),
 ):
     await asyncio.sleep(0.2)
 
-    query = db.query(ListingDB).join(ListingDB.address)
+    base_query = db.query(ListingDB).join(ListingDB.address)
 
     # numeric filters at DB-level
     if min_rent is not None:
-        query = query.filter(ListingDB.monthly_rent >= min_rent)
+        base_query = base_query.filter(ListingDB.monthly_rent >= min_rent)
     if max_rent is not None:
-        query = query.filter(ListingDB.monthly_rent <= max_rent)
+        base_query = base_query.filter(ListingDB.monthly_rent <= max_rent)
     if min_bedrooms is not None:
-        query = query.filter(ListingDB.num_bedrooms >= min_bedrooms)
+        base_query = base_query.filter(ListingDB.num_bedrooms >= min_bedrooms)
     if max_bedrooms is not None:
-        query = query.filter(ListingDB.num_bedrooms <= max_bedrooms)
+        base_query = base_query.filter(ListingDB.num_bedrooms <= max_bedrooms)
     if min_bathrooms is not None:
-        query = query.filter(ListingDB.num_bathrooms >= min_bathrooms)
+        base_query = base_query.filter(ListingDB.num_bathrooms >= min_bathrooms)
     if max_bathrooms is not None:
-        query = query.filter(ListingDB.num_bathrooms <= max_bathrooms)
+        base_query = base_query.filter(ListingDB.num_bathrooms <= max_bathrooms)
     if min_sqft is not None:
-        query = query.filter(ListingDB.square_feet >= min_sqft)
+        base_query = base_query.filter(ListingDB.square_feet >= min_sqft)
     if max_sqft is not None:
-        query = query.filter(ListingDB.square_feet <= max_sqft)
+        base_query = base_query.filter(ListingDB.square_feet <= max_sqft)
     if is_available is not None:
-        query = query.filter(ListingDB.is_available == is_available)
+        base_query = base_query.filter(ListingDB.is_available == is_available)
     if city:
-        query = query.filter(AddressDB.city.ilike(city))
+        base_query = base_query.filter(AddressDB.city.ilike(f"%{city}%"))
     if state:
-        query = query.filter(AddressDB.state.ilike(state))
+        base_query = base_query.filter(AddressDB.state.ilike(f"%{state}%"))
+        
+    total = base_query.count()
 
-    listings = query.all()
+    listings = (
+        base_query
+        .order_by(ListingDB.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
     # in-memory amenities filtering
     if amenities:
@@ -286,8 +300,34 @@ async def list_listings(
             l for l in listings
             if all(a in amenities_from_string(l.amenities) for a in amenities)
         ]
+    
+    items = [listing_db_to_read(l) for l in listings]
+    
+    # build relative next/prev links
+    def build_link(new_offset: int) -> str:
+        q = dict(request.query_params)
+        q["offset"] = str(new_offset)
+        q["limit"] = str(limit)
+        # rebuild relative URL: "/listings?...”
+        querystring = "&".join([f"{k}={v}" for k, v in q.items()])
+        return f"/listings?{querystring}"
 
-    return [listing_db_to_read(l) for l in listings]
+    next_link = build_link(offset + limit) if (offset + limit) < total else None
+    prev_link = build_link(max(0, offset - limit)) if offset > 0 else None
+    links = [Link(rel="self", href=build_link(offset))]
+    if next_link:
+        links.append(Link(rel="next", href=next_link))
+    if prev_link:
+        links.append(Link(rel="prev", href=prev_link))
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "count": len(items),
+        "items": items,
+        "links": links,
+    }
 
 @app.put("/listings/{listing_id}", response_model=ListingRead)
 async def update_listing(
@@ -344,6 +384,7 @@ async def update_listing(
 async def get_listing(
     listing_id: UUID,
     response: Response,
+    if_none_match: Optional[str] = Header(None, alias="If-None-Match"),
     db: Session = Depends(get_db),
 ):
     await asyncio.sleep(0.05)
@@ -359,6 +400,13 @@ async def get_listing(
 
     etag = compute_listing_etag(listing)
     response.headers["ETag"] = etag
+
+    if if_none_match:
+        candidates = [t.strip() for t in if_none_match.split(",")]
+        if "*" in candidates or etag in candidates:
+            # Not modified
+            response.headers["ETag"] = etag
+            return Response(status_code=status.HTTP_304_NOT_MODIFIED)
 
     return listing_db_to_read(listing)
 

@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
 
-from listings.listings import ListingCreate, ListingRead, ListingUpdate, Link
+from listings.listings import ListingCreate, ListingRead, ListingUpdate, Link, ListingPage
 from listings.address import AddressCreate, AddressRead
 from database import Base, engine, get_db, SessionLocal
 from listings.listings_sql import AddressDB, ListingDB
@@ -232,7 +232,7 @@ async def get_listing_creation_status(task_id: UUID):
     return {"status": "PENDING", "message": "The listing creation is still in progress."}
 
 # GET collection with filters
-@app.get("/listings", response_model=List[ListingRead])
+@app.get("/listings", response_model=List[ListingPage])
 async def list_listings(
     request: Request,
     min_rent: Optional[float] = Query(None, description="Minimum monthly rent in USD"),

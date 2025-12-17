@@ -144,6 +144,14 @@ class ListingRead(ListingBase):
         },
     }
 
+class ListingsPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    count: int
+    items: List[ListingRead]
+    links: List[Link]
+
 class ListingUpdate(BaseModel):
     title: Optional[str] = Field(
         None,

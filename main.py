@@ -232,7 +232,7 @@ async def get_listing_creation_status(task_id: UUID):
     return {"status": "PENDING", "message": "The listing creation is still in progress."}
 
 # GET collection with filters
-@app.get("/listings", response_model=List[ListingPage])
+@app.get("/listings", response_model=ListingPage)
 async def list_listings(
     request: Request,
     min_rent: Optional[float] = Query(None, description="Minimum monthly rent in USD"),
@@ -314,12 +314,11 @@ async def list_listings(
 
     next_link = build_link(offset + limit) if (offset + limit) < total else None
     prev_link = build_link(max(0, offset - limit)) if offset > 0 else None
-    links = [{"rel": "self", "href": build_link(offset)}]
+    links = [Link(rel="self", href=build_link(offset))]
     if next_link:
-        links.append({"rel": "next", "href": next_link})
+        links.append(Link(rel="next", href=next_link))
     if prev_link:
-        links.append({"rel": "prev", "href": prev_link})
-
+        links.append(Link(rel="prev", href=prev_link))
 
     return {
         "total": total,

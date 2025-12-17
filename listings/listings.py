@@ -144,7 +144,7 @@ class ListingRead(ListingBase):
         },
     }
 
-class ListingsPage(BaseModel):
+class ListingPage(BaseModel):
     total: int
     limit: int
     offset: int

@@ -53,7 +53,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5000",                     # Firebase local emulator
         "https://cloud-computing-ui.web.app",        # deployed Firebase site
-        "https://cloud-computing-ui.firebaseapp.com" # alt Firebase domain
+        "https://cloud-computing-ui.firebaseapp.com", # alt Firebase domain
+        "http://localhost:5173",                     # Vite local dev server
+        "http://localhost:8080",                     # Python http.server
     ],
     allow_credentials=True,
     allow_methods=["*"],
